@@ -1,3 +1,7 @@
+# Changelog for extreme v1.0.6
+
+- Add `Listener.subscribed?/1` function
+
 # Changelog for extreme v1.0.5
 
 - RequestManager buffers live events received after subscription is created,

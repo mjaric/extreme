@@ -44,6 +44,7 @@ defmodule Extreme.Listener do
 
       def unsubscribe(server \\ __MODULE__), do: GenServer.call(server, :unsubscribe)
       def subscribe(server \\ __MODULE__), do: GenServer.cast(server, :subscribe)
+      def subscribed?(server \\ __MODULE__), do: GenServer.call(server, :subscribed?)
 
       @impl true
       def init(
@@ -93,6 +94,9 @@ defmodule Extreme.Listener do
 
       def handle_call(:unsubscribe, _from, state),
         do: _unsubscribe(state)
+
+      def handle_call(:subscribed?, _from, state),
+        do: {:reply, !!state.subscription, state}
 
       defp _unsubscribe(state) do
         Logger.info(

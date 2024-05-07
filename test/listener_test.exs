@@ -61,6 +61,8 @@ defmodule Extreme.ListenerTest do
 
     # run listener and expect it to read them
     {:ok, listener} = MyListener.start_link(TestConn, stream, read_per_page: 2)
+    assert MyListener.subscribed?(listener)
+
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonCreated"
     assert event1 == :erlang.binary_to_term(event)
@@ -78,6 +80,7 @@ defmodule Extreme.ListenerTest do
     assert DB.get_last_event(MyListener, stream) == 2
 
     :ok = MyListener.unsubscribe(listener)
+    refute MyListener.subscribed?(listener)
     Helpers.assert_no_leaks(TestConn)
   end
 
