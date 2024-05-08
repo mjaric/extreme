@@ -42,7 +42,9 @@ defmodule Extreme.Listener do
         )
       end
 
-      def unsubscribe(server \\ __MODULE__), do: GenServer.call(server, :unsubscribe)
+      def unsubscribe(server \\ __MODULE__),
+        do: GenServer.call(server |> IO.inspect(), :unsubscribe)
+
       def subscribe(server \\ __MODULE__), do: GenServer.cast(server, :subscribe)
       def subscribed?(server \\ __MODULE__), do: GenServer.call(server, :subscribed?)
 
@@ -88,7 +90,8 @@ defmodule Extreme.Listener do
             {:reply, :ok, %{state | last_event: event_number}}
 
           :stop ->
-            _unsubscribe(state)
+            true = Process.demonitor(state.subscription_ref)
+            {:reply, :stop, %{state | subscription: nil, subscription_ref: nil}}
         end
       end
 
@@ -104,6 +107,7 @@ defmodule Extreme.Listener do
         )
 
         true = Process.demonitor(state.subscription_ref)
+
         :unsubscribed = state.extreme.unsubscribe(state.subscription)
         {:reply, :ok, %{state | subscription: nil, subscription_ref: nil}}
       end

@@ -94,10 +94,29 @@ defmodule Extreme.ReadingSubscription do
   def handle_cast(:push_buffered_messages, state) do
     state.buffered_messages
     |> Enum.reverse()
-    |> Enum.each(&Shared.on_event(state.subscriber, &1, state.read_params.ack_timeout))
+    |> Enum.any?(fn msg ->
+      state.subscriber
+      |> Shared.on_event(msg, state.read_params.ack_timeout)
+      |> case do
+        :ok ->
+          false
 
-    send(state.subscriber, :caught_up)
-    {:noreply, %{state | status: :subscribed, buffered_messages: []}}
+        error ->
+          Logger.warning(
+            "Processing of buffered message didn't succeed: #{inspect([msg, error])}"
+          )
+
+          true
+      end
+    end)
+    # One msg processing didn't succeed (maybe we got `:stop`)
+    |> if do
+      RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+      {:stop, {:shutdown, :processing_of_buffered_message_failed}, state}
+    else
+      send(state.subscriber, :caught_up)
+      {:noreply, %{state | status: :subscribed, buffered_messages: []}}
+    end
   end
 
   defp _process_read_response({:error, :stream_deleted, _}, state) do
@@ -119,13 +138,32 @@ defmodule Extreme.ReadingSubscription do
     Logger.debug(fn -> "Last read event: #{inspect(response.next_event_number - 1)}" end)
 
     response.events
-    |> Enum.each(&Shared.on_event(state.subscriber, &1, state.read_params.ack_timeout))
+    |> Enum.any?(fn msg ->
+      state.subscriber
+      |> Shared.on_event(msg, state.read_params.ack_timeout)
+      |> case do
+        :ok ->
+          false
 
-    state =
-      response.next_event_number
-      |> _send_next_request(state)
+        error ->
+          Logger.warning(
+            "Processing of buffered message didn't succeed: #{inspect([msg, error])}"
+          )
 
-    {:noreply, state}
+          true
+      end
+    end)
+    # One event processing didn't succeed (maybe we got `:stop`)
+    |> if do
+      RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+      {:stop, {:shutdown, :processing_of_read_events_failed}, state}
+    else
+      state =
+        response.next_event_number
+        |> _send_next_request(state)
+
+      {:noreply, state}
+    end
   end
 
   defp _caught_up(message, state) do

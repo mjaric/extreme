@@ -55,7 +55,7 @@ defmodule Extreme.SharedSubscription do
   in order to apply backpressure.
   """
   def on_event(subscriber, event, ack_timeout),
-    do: :ok = GenServer.call(subscriber, {:on_event, event}, ack_timeout)
+    do: GenServer.call(subscriber, {:on_event, event}, ack_timeout)
 
   defp _process_push(
          {_auth, _correlation_id,
@@ -73,8 +73,17 @@ defmodule Extreme.SharedSubscription do
          {_auth, _correlation_id, %Msg.StreamEventAppeared{} = e},
          state
        ) do
-    on_event(state.subscriber, e.event, state.read_params.ack_timeout)
-    {:noreply, state}
+    state.subscriber
+    |> on_event(e.event, state.read_params.ack_timeout)
+    |> case do
+      :ok ->
+        {:noreply, state}
+
+      :stop ->
+        Logger.warning("Processing of event requested stopping subscription")
+        RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+        {:stop, {:shutdown, :processing_of_event_requested_stopping_subscription}, state}
+    end
   end
 
   defp _process_push(

@@ -1,3 +1,7 @@
+# Changelog for extreme v1.0.7
+
+- Fix stoping subscription if `on_event` callback returns `:stop`
+
 # Changelog for extreme v1.0.6
 
 - Add `Listener.subscribed?/1` function
