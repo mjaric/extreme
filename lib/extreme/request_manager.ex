@@ -79,7 +79,7 @@ defmodule Extreme.RequestManager do
     |> GenServer.call({:subscribe_to, stream, subscriber, resolve_link_tos, ack_timeout})
   end
 
-  def _unregister_subscription(base_name, correlation_id) do
+  def unregister_subscription(base_name, correlation_id) do
     base_name
     |> _name()
     |> GenServer.cast({:unregister_subscription, correlation_id})

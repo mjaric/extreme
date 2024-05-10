@@ -111,7 +111,7 @@ defmodule Extreme.ReadingSubscription do
     end)
     # One msg processing didn't succeed (maybe we got `:stop`)
     |> if do
-      RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+      RequestManager.unregister_subscription(state.base_name, state.correlation_id)
       {:stop, {:shutdown, :processing_of_buffered_message_failed}, state}
     else
       send(state.subscriber, :caught_up)
@@ -123,7 +123,7 @@ defmodule Extreme.ReadingSubscription do
     Logger.error(fn -> "Stream is hard deleted" end)
 
     send(state.subscriber, {:extreme, :error, :stream_deleted, state.read_params.stream})
-    RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+    RequestManager.unregister_subscription(state.base_name, state.correlation_id)
     {:stop, {:shutdown, :stream_deleted}, state}
   end
 
@@ -155,7 +155,7 @@ defmodule Extreme.ReadingSubscription do
     end)
     # One event processing didn't succeed (maybe we got `:stop`)
     |> if do
-      RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+      RequestManager.unregister_subscription(state.base_name, state.correlation_id)
       {:stop, {:shutdown, :processing_of_read_events_failed}, state}
     else
       state =

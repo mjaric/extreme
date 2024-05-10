@@ -65,7 +65,7 @@ defmodule Extreme.SharedSubscription do
          state
        ) do
     send(state.subscriber, {:extreme, :stream_hard_deleted})
-    RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+    RequestManager.unregister_subscription(state.base_name, state.correlation_id)
     {:stop, {:shutdown, :stream_hard_deleted}, state}
   end
 
@@ -81,7 +81,7 @@ defmodule Extreme.SharedSubscription do
 
       :stop ->
         Logger.warning("Processing of event requested stopping subscription")
-        RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+        RequestManager.unregister_subscription(state.base_name, state.correlation_id)
         {:stop, {:shutdown, :processing_of_event_requested_stopping_subscription}, state}
     end
   end
@@ -91,7 +91,7 @@ defmodule Extreme.SharedSubscription do
          state
        ) do
     send(state.subscriber, {:extreme, reason})
-    RequestManager._unregister_subscription(state.base_name, state.correlation_id)
+    RequestManager.unregister_subscription(state.base_name, state.correlation_id)
 
     case Process.get(:reply_to) do
       nil -> :ok

@@ -42,8 +42,7 @@ defmodule Extreme.Listener do
         )
       end
 
-      def unsubscribe(server \\ __MODULE__),
-        do: GenServer.call(server |> IO.inspect(), :unsubscribe)
+      def unsubscribe(server \\ __MODULE__), do: GenServer.call(server, :unsubscribe)
 
       def subscribe(server \\ __MODULE__), do: GenServer.cast(server, :subscribe)
       def subscribed?(server \\ __MODULE__), do: GenServer.call(server, :subscribed?)

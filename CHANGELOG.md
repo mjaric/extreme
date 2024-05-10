@@ -1,3 +1,7 @@
+# Changelog for extreme v1.1.0
+
+- Rename `RequestManager._unregister_subscription/2` (removed leading `_`)
+
 # Changelog for extreme v1.0.7
 
 - Fix stoping subscription if `on_event` callback returns `:stop`
