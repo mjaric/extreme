@@ -163,7 +163,7 @@ defmodule ExtremeTest do
     end
 
     test "reads correct big integer when written as term" do
-      stream = Helpers.random_stream_name() |> IO.inspect(label: "STREAM")
+      stream = Helpers.random_stream_name()
       number_1 = 6_553_255_926_290_448_384
       number_2 = 25_000_000_000_000_000_000
 
@@ -186,7 +186,7 @@ defmodule ExtremeTest do
     end
 
     test "reads correct big integer when written as json" do
-      stream = Helpers.random_stream_name() |> IO.inspect(label: "STREAM")
+      stream = Helpers.random_stream_name()
       number_1 = 6_553_255_926_290_448_384
       number_2 = 25_000_000_000_000_000_000
 
@@ -209,7 +209,6 @@ defmodule ExtremeTest do
                  event = Jason.decode!(ev.event.data, keys: :atoms)
                  struct!(event_type, event)
                end)
-               |> IO.inspect()
     end
 
     test "from non existing stream returns {:error, :no_stream, %ReadStreamEventsCompleted{}}" do
