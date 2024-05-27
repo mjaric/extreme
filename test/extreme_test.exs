@@ -162,6 +162,55 @@ defmodule ExtremeTest do
                Enum.map(read_events, fn event -> :erlang.binary_to_term(event.event.data) end)
     end
 
+    test "reads correct big integer when written as term" do
+      stream = Helpers.random_stream_name()
+      number_1 = 6_553_255_926_290_448_384
+      number_2 = 25_000_000_000_000_000_000
+
+      [event_1, event_2] =
+        events = [
+          %Event.BigNumberAdded{number: number_1},
+          %Event.BigNumberAdded{number: number_2}
+        ]
+
+      {:ok, %ExMsg.WriteEventsCompleted{}} =
+        TestConn.execute(Helpers.write_events(stream, events))
+
+      {:ok, %ExMsg.ReadStreamEventsCompleted{events: read_events, is_end_of_stream: true}} =
+        TestConn.execute(Helpers.read_events(stream, 0, 2))
+
+      assert [ev1, ev2] = read_events
+
+      assert event_1 == :erlang.binary_to_term(ev1.event.data)
+      assert event_2 == :erlang.binary_to_term(ev2.event.data)
+    end
+
+    test "reads correct big integer when written as json" do
+      stream = Helpers.random_stream_name()
+      number_1 = 6_553_255_926_290_448_384
+      number_2 = 25_000_000_000_000_000_000
+
+      [event_1, event_2] =
+        events = [
+          %Event.BigNumberMapAdded{number_map: %{number: number_1}},
+          %Event.BigNumberMapAdded{number_map: %{number: number_2}}
+        ]
+
+      {:ok, %ExMsg.WriteEventsCompleted{}} =
+        TestConn.execute(Helpers.write_json_events(stream, events))
+
+      {:ok, %ExMsg.ReadStreamEventsCompleted{events: read_events, is_end_of_stream: true}} =
+        TestConn.execute(Helpers.read_events(stream, 0, 2))
+
+      assert [^event_1, ^event_2] =
+               read_events
+               |> Enum.map(fn ev ->
+                 event_type = ev.event.event_type |> String.to_existing_atom()
+                 event = Jason.decode!(ev.event.data, keys: :atoms)
+                 struct!(event_type, event)
+               end)
+    end
+
     test "from non existing stream returns {:error, :no_stream, %ReadStreamEventsCompleted{}}" do
       {:error, :no_stream, %ExMsg.ReadStreamEventsCompleted{}} =
         TestConn.execute(Helpers.read_events(Helpers.random_stream_name()))
