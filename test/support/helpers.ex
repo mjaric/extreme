@@ -2,6 +2,8 @@ defmodule ExtremeTest.Events do
   defmodule(PersonCreated, do: defstruct([:name]))
   defmodule(PersonChangedName, do: defstruct([:name]))
   defmodule(SlowProcessingEventHappened, do: defstruct([:sleep]))
+  defmodule(BigNumberAdded, do: defstruct([:number]))
+  defmodule(BigNumberMapAdded, do: defstruct([:number_map]))
 end
 
 defmodule ExtremeTest.Helpers do
@@ -27,6 +29,33 @@ defmodule ExtremeTest.Helpers do
           data_content_type: 0,
           metadata_content_type: 0,
           data: :erlang.term_to_binary(event),
+          metadata: ""
+        )
+      end)
+
+    ExMsg.WriteEvents.new(
+      event_stream_id: stream,
+      expected_version: -2,
+      events: proto_events,
+      require_master: false
+    )
+  end
+
+  def write_json_events(
+        stream \\ random_stream_name(),
+        events \\ [
+          %Event.PersonCreated{name: "Pera Peric"},
+          %Event.PersonChangedName{name: "Zika"}
+        ]
+      ) do
+    proto_events =
+      Enum.map(events, fn event ->
+        ExMsg.NewEvent.new(
+          event_id: Extreme.Tools.generate_uuid(),
+          event_type: to_string(event.__struct__),
+          data_content_type: 1,
+          metadata_content_type: 1,
+          data: Jason.encode!(Map.from_struct(event)),
           metadata: ""
         )
       end)
