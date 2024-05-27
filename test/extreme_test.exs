@@ -192,8 +192,8 @@ defmodule ExtremeTest do
 
       [event_1, event_2] =
         events = [
-          %Event.BigNumberAdded{number: number_1},
-          %Event.BigNumberAdded{number: number_2}
+          %Event.BigNumberMapAdded{number_map: %{number: number_1}},
+          %Event.BigNumberMapAdded{number_map: %{number: number_2}}
         ]
 
       {:ok, %ExMsg.WriteEventsCompleted{}} =
