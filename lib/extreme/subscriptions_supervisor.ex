@@ -1,6 +1,6 @@
 defmodule Extreme.SubscriptionsSupervisor do
   use DynamicSupervisor
-  alias Extreme.{Subscription, ReadingSubscription, PersistentSubscription}
+  alias Extreme.{Subscription, ReadingSubscription, PersistentSubscription, EventProducer}
 
   def _name(base_name),
     do: Module.concat(base_name, SubscriptionsSupervisor)
@@ -26,6 +26,16 @@ defmodule Extreme.SubscriptionsSupervisor do
       start:
         {Subscription, :start_link,
          [base_name, correlation_id, subscriber, stream, resolve_link_tos, ack_timeout]},
+      restart: :temporary
+    })
+  end
+
+  def start_event_producer(base_name, opts) do
+    base_name
+    |> _name()
+    |> DynamicSupervisor.start_child(%{
+      id: EventProducer,
+      start: {EventProducer, :start_link, [base_name, opts]},
       restart: :temporary
     })
   end

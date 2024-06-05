@@ -1,3 +1,7 @@
+# Changelog for extreme v1.1.1
+
+- Inject `start_event_producer/3` function that will keep backpressure with live events by unsubscribing and resubscribing to ES stream.
+
 # Changelog for extreme v1.1.0
 
 - Rename `RequestManager._unregister_subscription/2` (removed leading `_`)

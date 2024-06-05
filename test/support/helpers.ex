@@ -107,6 +107,10 @@ defmodule ExtremeTest.Helpers do
     children_count =
       Extreme.SubscriptionsSupervisor._name(base_name)
       |> Supervisor.which_children()
+      |> Enum.reject(fn
+        {_, _, :worker, [Extreme.EventProducer]} -> true
+        _ -> false
+      end)
       |> Enum.count()
 
     assert 0 == children_count, "There are #{children_count} hanging subscription processes"

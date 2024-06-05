@@ -67,6 +67,13 @@ defmodule Extreme do
         )
       end
 
+      def start_event_producer(stream, subscriber, opts \\ []) do
+        Extreme.SubscriptionsSupervisor.start_event_producer(
+          __MODULE__,
+          [{:stream, stream}, {:subscriber, subscriber} | opts]
+        )
+      end
+
       def unsubscribe(subscription) when is_pid(subscription),
         do: Extreme.Subscription.unsubscribe(subscription)
 
