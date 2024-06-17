@@ -1,5 +1,5 @@
 defmodule Extreme.PersistentSubscriptionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ExtremeTest.{Events, Helpers}
   alias Extreme.PersistentSubscription

@@ -8,6 +8,7 @@ defmodule Extreme.Supervisor do
   def init({base_name, configuration}) do
     [
       {Extreme.SubscriptionsSupervisor, base_name},
+      {Extreme.EventProducer.Supervisor, base_name},
       {Task.Supervisor, [name: Extreme.RequestManager._process_supervisor_name(base_name)]},
       %{
         id: RequestManager,

@@ -4,6 +4,7 @@ defmodule ExtremeTest.Events do
   defmodule(SlowProcessingEventHappened, do: defstruct([:sleep]))
   defmodule(BigNumberAdded, do: defstruct([:number]))
   defmodule(BigNumberMapAdded, do: defstruct([:number_map]))
+  defmodule(StopOnThisOne, do: defstruct([:times]))
 end
 
 defmodule ExtremeTest.Helpers do
