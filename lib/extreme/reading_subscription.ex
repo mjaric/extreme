@@ -101,6 +101,10 @@ defmodule Extreme.ReadingSubscription do
         :ok ->
           false
 
+        :stop ->
+          Logger.info("Processing of buffered message is stopped")
+          true
+
         error ->
           Logger.warning(
             "Processing of buffered message didn't succeed: #{inspect([msg, error])}"
@@ -144,6 +148,10 @@ defmodule Extreme.ReadingSubscription do
       |> case do
         :ok ->
           false
+
+        :stop ->
+          Logger.info("Processing of read message is stopped")
+          true
 
         error ->
           Logger.warning(
