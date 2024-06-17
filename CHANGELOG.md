@@ -1,10 +1,7 @@
-# Changelog for extreme v1.1.1
-
-- Add event_producer functionality for module that uses `Extreme`.
-
 # Changelog for extreme v1.1.0
 
 - Rename `RequestManager._unregister_subscription/2` (removed leading `_`)
+- Add event_producer functionality for module that uses `Extreme`.
 
 # Changelog for extreme v1.0.7
 

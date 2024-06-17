@@ -108,8 +108,8 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       matrix:
-        elixir: ['1.12.3']
-        erlang: ['24.1']
+        elixir: ['1.12.3', '1.13', '1.14', '1.15', '1.16', '1.17']
+        erlang: ['24.3', '25.3', '26.3', '27.0']
 
     services:
       es:
