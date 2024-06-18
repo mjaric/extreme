@@ -45,9 +45,22 @@ defmodule Extreme.ListenerWithBackPressure do
 
       @impl GenServer
       def init({extreme, opts}) do
-        :ok = on_init(opts)
+        client_state =
+          opts
+          |> on_init()
+          |> case do
+            :ok -> %{}
+            {:ok, client_state} -> client_state
+          end
+
         stream_name = Keyword.fetch!(opts, :stream)
-        last_event = get_last_event(stream_name)
+        last_event = get_last_event(stream_name, client_state)
+
+        opts = [
+          {:from_event_number, last_event},
+          {:per_page, Keyword.get(opts, :read_per_page, 100)}
+          | opts
+        ]
 
         {:ok, producer} = extreme.start_event_producer(stream_name, self(), opts)
         _ref = Process.monitor(producer)
@@ -58,6 +71,7 @@ defmodule Extreme.ListenerWithBackPressure do
 
         {:ok,
          %{
+           client_state: client_state,
            stream_name: stream_name,
            extreme: extreme,
            producer: producer
@@ -66,7 +80,7 @@ defmodule Extreme.ListenerWithBackPressure do
 
       @impl GenServer
       def handle_call({:on_event, push}, _from, %{} = state) do
-        response = process_push(push, state.stream_name)
+        response = process_push(push, state.stream_name, state.client_state)
 
         {:reply, response, state}
       end
