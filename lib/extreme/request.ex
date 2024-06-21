@@ -26,6 +26,7 @@ defmodule Extreme.Request do
 
   def prepare(protobuf_msg, credentials, correlation_id) do
     cmd = protobuf_msg.__struct__
+    # IO.inspect([correlation_id, cmd], label: "Sending to ES")
     data = cmd.encode(protobuf_msg)
     _to_binary(cmd, correlation_id, credentials, data)
   end

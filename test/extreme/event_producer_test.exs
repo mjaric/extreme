@@ -526,8 +526,6 @@ defmodule Extreme.EventProducerTest do
     :ok = TestConn.subscribe_producer(producer)
     # we should get previously stopped event and the one after that
     for _ <- 1..2, do: assert_receive({:on_event, _event})
-    assert :catching_up = TestConn.producer_subscription_status(producer)
-
     Process.sleep(50)
     assert :live = TestConn.producer_subscription_status(producer)
 
@@ -535,7 +533,7 @@ defmodule Extreme.EventProducerTest do
     assert Subscriber.received_events(subscriber) == events1
 
     # We can manually stop subscription without killing subscriber or producer
-    :unsubscribed = TestConn.unsubscribe_producer(producer)
+    :ok = TestConn.unsubscribe_producer(producer)
     assert :disconnected = TestConn.producer_subscription_status(producer)
 
     # then new events are not delivered to subscriber
@@ -551,7 +549,57 @@ defmodule Extreme.EventProducerTest do
     # and then when we resubscribe, we'll get pending event
     :ok = TestConn.subscribe_producer(producer)
     assert_receive({:on_event, _event})
-    assert :catching_up = TestConn.producer_subscription_status(producer)
+    Process.sleep(50)
+    assert :live = TestConn.producer_subscription_status(producer)
+
+    Helpers.unsubscribe(TestConn, producer)
+  end
+
+  test "subscription is turned off when buffer is full and then turned on when it is empty" do
+    stream = Helpers.random_stream_name()
+    num_events = 200
+    # prepopulate stream
+    events1 =
+      1..num_events
+      |> Enum.map(fn _ -> %Event.SlowProcessingEventHappened{sleep: 5} end)
+
+    spawn(fn ->
+      Enum.each(events1, fn e ->
+        {:ok, %ExMsg.WriteEventsCompleted{}} =
+          TestConn.execute(Helpers.write_events(stream, [e]))
+      end)
+
+      Logger.debug("All events written")
+    end)
+
+    # subscribe to existing stream
+    {:ok, subscriber} = Subscriber.start_link()
+
+    opts = [
+      from_event_number: -1,
+      per_page: 2,
+      resolve_link_tos: true,
+      require_master: false,
+      ack_timeout: 5_000,
+      max_buffered: 2,
+      auto_subscribe: true
+    ]
+
+    {:ok, producer} = TestConn.start_event_producer(stream, subscriber, opts)
+
+    for _ <- 1..num_events, do: assert_receive({:on_event, _event})
+
+    # assert :caught_up is received when existing events are read
+    assert_receive :caught_up
+
+    # check if events came in correct order.
+    assert Subscriber.received_events(subscriber) == events1
+
+    {:ok, %ExMsg.ReadStreamEventsCompleted{} = response} =
+      TestConn.execute(Helpers.read_events(stream, 0, 2_000))
+
+    assert events1 ==
+             Enum.map(response.events, fn event -> :erlang.binary_to_term(event.event.data) end)
 
     Helpers.unsubscribe(TestConn, producer)
   end

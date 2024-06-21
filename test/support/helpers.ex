@@ -11,6 +11,7 @@ defmodule ExtremeTest.Helpers do
   alias Extreme.Messages, as: ExMsg
   alias ExtremeTest.Events, as: Event
   require ExUnit.Assertions
+  require Logger
   import ExUnit.Assertions
 
   def random_stream_name, do: "extreme_test-" <> to_string(UUID.uuid1())
@@ -108,21 +109,31 @@ defmodule ExtremeTest.Helpers do
   end
 
   def unsubscribe(extreme, subscription) do
-    :unsubscribed = extreme.unsubscribe(subscription)
+    :ok = extreme.unsubscribe(subscription)
+
     assert_no_leaks(extreme)
   end
 
   def assert_no_leaks(base_name) do
+    # it takes some time for unsubscribe response from ES
+    Process.sleep(50)
+
     assert(
       %{received_data: ""} = Extreme.Connection._name(base_name) |> :sys.get_state(),
-      "There are unprocessed received data in connection process"
+      "There is unprocessed received data in connection process"
     )
 
     %{requests: requests, subscriptions: subscriptions} =
       Extreme.RequestManager._name(base_name) |> :sys.get_state()
 
+    unless Enum.empty?(requests),
+      do: Logger.error("Requests registered in RequestManager: #{inspect(requests)}")
+
     assert Enum.empty?(requests),
            "There are #{Enum.count(requests)} waiting requests in request manager"
+
+    unless Enum.empty?(subscriptions),
+      do: Logger.error("Subscriptions registered in RequestManager: #{inspect(subscriptions)}")
 
     assert Enum.empty?(subscriptions),
            "There are #{Enum.count(subscriptions)} opened subscriptions in request manager"

@@ -6,9 +6,23 @@ defmodule Extreme.ListenerWithBackPressure do
   The way it works is that there's intermediate process which turns off subscription when `max_buffer` is reached
   and creates new subscription when all buffered events are processed.
   """
+
+  @callback on_init(opts_from_start_link :: Keyword.t()) :: :ok | {:ok, client_state :: any()}
+  @callback get_last_event(stream_name :: String.t(), client_state :: any()) ::
+              last_event :: integer()
+  @callback process_push(
+              push_from_es :: Extreme.Messages.ResolvedEvent.t(),
+              stream_name :: String.t(),
+              client_state :: any()
+            ) ::
+              {:ok, event_number :: non_neg_integer()}
+              | :ok
+              | :stop
+
   defmacro __using__(_) do
     quote location: :keep do
       use GenServer
+      @behaviour Extreme.ListenerWithBackPressure
       require Logger
 
       def child_spec([extreme, stream_name | opts]) do
@@ -39,7 +53,7 @@ defmodule Extreme.ListenerWithBackPressure do
       end
 
       def subscribe(server \\ __MODULE__), do: GenServer.call(server, :subscribe)
-      def unsubscribe(server \\ __MODULE__), do: GenServer.call(server, :unsubscribe)
+      def unsubscribe(server \\ __MODULE__), do: GenServer.cast(server, :unsubscribe)
       def subscribed?(server \\ __MODULE__), do: GenServer.call(server, :subscribed?)
       def producer_status(server \\ __MODULE__), do: GenServer.call(server, :producer_status)
 
@@ -54,7 +68,7 @@ defmodule Extreme.ListenerWithBackPressure do
           end
 
         stream_name = Keyword.fetch!(opts, :stream)
-        last_event = get_last_event(stream_name, client_state)
+        last_event = fn -> get_last_event(stream_name, client_state) end
 
         opts = [
           {:from_event_number, last_event},
@@ -65,9 +79,7 @@ defmodule Extreme.ListenerWithBackPressure do
         {:ok, producer} = extreme.start_event_producer(stream_name, self(), opts)
         _ref = Process.monitor(producer)
 
-        Logger.info(
-          "#{__MODULE__} started event producer for stream #{stream_name} with event no: #{last_event + 1}"
-        )
+        Logger.info("#{__MODULE__} started event producer on stream #{stream_name}")
 
         {:ok,
          %{
@@ -90,11 +102,6 @@ defmodule Extreme.ListenerWithBackPressure do
         {:reply, response, state}
       end
 
-      def handle_call(:unsubscribe, _from, state) do
-        :unsubscribed = state.extreme.unsubscribe_producer(state.producer)
-        {:reply, :ok, state}
-      end
-
       def handle_call(:subscribed?, _from, state) do
         response = state.extreme.producer_subscription_status(state.producer) != :disconnected
         {:reply, response, state}
@@ -106,9 +113,16 @@ defmodule Extreme.ListenerWithBackPressure do
       end
 
       @impl GenServer
+      def handle_cast(:unsubscribe, state) do
+        :ok = state.extreme.unsubscribe_producer(state.producer)
+        {:noreply, state}
+      end
+
+      @impl GenServer
       def handle_info(_, %{} = state),
         do: {:noreply, state}
 
+      @impl Extreme.ListenerWithBackPressure
       def on_init(_), do: :ok
 
       defoverridable on_init: 1

@@ -18,7 +18,7 @@ defmodule Extreme.Connection do
       |> GenServer.cast({:execute, message})
   end
 
-  @impl true
+  @impl GenServer
   def init({base_name, configuration}) do
     GenServer.cast(self(), {:connect, configuration, 1})
 
@@ -30,7 +30,7 @@ defmodule Extreme.Connection do
     {:ok, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_cast({:connect, configuration, attempt}, state) do
     configuration
     |> _connect(attempt)
@@ -57,7 +57,7 @@ defmodule Extreme.Connection do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:tcp, socket, pkg}, %State{socket: socket} = state) do
     {:ok, state} = Impl.receive_package(pkg, state)
     {:noreply, state}
@@ -66,7 +66,7 @@ defmodule Extreme.Connection do
   def handle_info({:tcp_closed, _port}, state),
     do: {:stop, :tcp_closed, state}
 
-  @impl true
+  @impl GenServer
   def terminate(reason, state) do
     Logger.warning("[Extreme] Connection terminated: #{inspect(reason)}")
     RequestManager.kill_all_subscriptions(state.base_name)

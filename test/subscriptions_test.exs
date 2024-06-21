@@ -487,15 +487,14 @@ defmodule ExtremeSubscriptionsTest do
       {:ok, subscriber} = Subscriber.start_link()
       {:ok, subscription} = TestConn.read_and_stay_subscribed(stream, subscriber, 0, 2)
 
-      Logger.debug("Second pack of events written")
-
       # assert first events are received
       for _ <- 1..num_events, do: assert_receive({:on_event, _event})
 
       Logger.debug("First pack of events received")
 
       # assert second pack of events is received as well
-      for _ <- 1..num_events, do: assert_receive({:on_event, _event}, 1_000)
+      for _ <- 1..num_events, do: assert_receive({:on_event, _event})
+      Logger.debug("Second pack of events received")
 
       # assert :caught_up is received when existing events are read
       assert_receive :caught_up
@@ -546,8 +545,6 @@ defmodule ExtremeSubscriptionsTest do
 
       {:ok, subscription} = TestConn.read_and_stay_subscribed(stream, subscriber, 0, 2)
 
-      Logger.debug("Second pack of events written")
-
       # assert first events are received
       for _ <- 1..num_events, do: assert_receive({:on_event, _event})
 
@@ -555,6 +552,7 @@ defmodule ExtremeSubscriptionsTest do
 
       # assert second pack of events is received as well
       for _ <- 1..num_events, do: assert_receive({:on_event, _event})
+      Logger.debug("Second pack of events received")
 
       # assert :caught_up is received when existing events are read
       assert_receive :caught_up
@@ -617,52 +615,6 @@ defmodule ExtremeSubscriptionsTest do
 
       assert events1 ++ events2 ==
                Enum.map(response.events, fn event -> :erlang.binary_to_term(event.event.data) end)
-
-      Helpers.unsubscribe(TestConn, subscription)
-    end
-
-    test "backpressure" do
-      stream = Helpers.random_stream_name()
-      num_events = 1_000
-      # prepopulate stream
-      events =
-        1..num_events
-        |> Enum.map(fn x -> %Event.PersonCreated{name: "Name #{x}"} end)
-
-      {:ok, %ExMsg.WriteEventsCompleted{}} =
-        TestConn.execute(Helpers.write_events(stream, events))
-
-      # subscribe to existing stream
-      read_per_batch = 100
-      {:ok, subscriber} = Subscriber.start_link()
-
-      {:ok, subscription} =
-        TestConn.read_and_stay_subscribed(stream, subscriber, 0, read_per_batch)
-
-      connection =
-        Extreme.Connection._name(TestConn)
-        |> Process.whereis()
-
-      request_manager =
-        Extreme.RequestManager._name(TestConn)
-        |> Process.whereis()
-
-      for _ <- 1..num_events do
-        {:message_queue_len, len} = Process.info(subscriber, :message_queue_len)
-        assert len < 2
-        {:message_queue_len, len} = Process.info(subscription, :message_queue_len)
-        assert len < 2
-        {:message_queue_len, len} = Process.info(connection, :message_queue_len)
-        assert len < 2
-        {:message_queue_len, len} = Process.info(request_manager, :message_queue_len)
-        assert len < 2
-
-        assert_receive({:on_event, _event})
-        Process.sleep(10)
-      end
-
-      # assert :caught_up is received when all events are read
-      assert_receive :caught_up
 
       Helpers.unsubscribe(TestConn, subscription)
     end

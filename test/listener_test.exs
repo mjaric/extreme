@@ -81,6 +81,8 @@ defmodule Extreme.ListenerTest do
 
     :ok = MyListener.unsubscribe(listener)
     refute MyListener.subscribed?(listener)
+    # unsubscribe is idempotent
+    :ok = MyListener.unsubscribe(listener)
     Helpers.assert_no_leaks(TestConn)
   end
 

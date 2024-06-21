@@ -19,7 +19,7 @@ defmodule Extreme.ReadingSubscription do
     )
   end
 
-  @impl true
+  @impl GenServer
   def init(
         {base_name, correlation_id, subscriber,
          {stream, from_event_number, per_page, resolve_link_tos, require_master, ack_timeout}}
@@ -50,13 +50,12 @@ defmodule Extreme.ReadingSubscription do
     {:ok, %State{state | read_until: read_until}}
   end
 
-  @impl true
-  def handle_call(:unsubscribe, from, state) do
-    :ok = Shared.unsubscribe(from, state)
+  @impl GenServer
+  def handle_cast(:unsubscribe, state) do
+    :ok = Shared.unsubscribe(state)
     {:noreply, state}
   end
 
-  @impl true
   def handle_cast({:process_push, fun}, %{status: :subscribed} = state),
     do: Shared.process_push(fun, state)
 

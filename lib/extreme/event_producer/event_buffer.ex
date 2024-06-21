@@ -15,7 +15,7 @@ defmodule Extreme.EventProducer.EventBuffer do
     do: GenServer.cast(pid, {:ack, response})
 
   def unsubscribe(pid),
-    do: GenServer.call(pid, :unsubscribe)
+    do: GenServer.cast(pid, :unsubscribe)
 
   def subscribe(pid),
     do: GenServer.cast(pid, :subscribe)
@@ -61,16 +61,41 @@ defmodule Extreme.EventProducer.EventBuffer do
   end
 
   @impl GenServer
-  def handle_cast(:subscribe, state) do
+  def handle_cast(:unsubscribe, %State{subscription: nil} = state),
+    do: {:noreply, state}
+
+  def handle_cast(:unsubscribe, %State{} = state) do
+    Logger.debug("Received `:unsubscribe` request")
+    :ok = Subscription.unsubscribe(state.subscription)
+    state = %State{state | subscription: nil, subscription_ref: nil, status: :disconnected}
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:subscribe, %{status: :disconnected} = state) do
     Logger.debug(
-      "Subscribing to #{state.stream} starting with #{state.last_buffered_event_number}"
+      "Subscribing to #{state.stream} starting with #{inspect(state.last_buffered_event_number)}"
     )
+
+    handle_cast(:resubscribe, state)
+  end
+
+  def handle_cast(:subscribe, %{} = state) do
+    Logger.warning("(noop) Subscribe attempted while in #{state.status} status")
+    {:noreply, state}
+  end
+
+  def handle_cast(:resubscribe, %{} = state) do
+    last_buffered_event_number =
+      if is_function(state.last_buffered_event_number),
+        do: state.last_buffered_event_number.(),
+        else: state.last_buffered_event_number
 
     {:ok, subscription} =
       Extreme.RequestManager.read_and_stay_subscribed(
         state.base_name,
         self(),
-        state.subscription_params_fn.(state.last_buffered_event_number + 1)
+        state.subscription_params_fn.(last_buffered_event_number + 1)
       )
 
     ref = Process.monitor(subscription)
@@ -97,17 +122,6 @@ defmodule Extreme.EventProducer.EventBuffer do
   end
 
   @impl GenServer
-  def handle_call(:unsubscribe, _from, %State{subscription: nil} = state),
-    do: {:reply, :unsubscribed, state}
-
-  def handle_call(:unsubscribe, _from, %State{} = state) do
-    Logger.debug("Received `:unsubscribe` request")
-    response = Subscription.unsubscribe(state.subscription)
-    state = %State{state | subscription: nil, subscription_ref: nil, status: :disconnected}
-
-    {:reply, response, state}
-  end
-
   def handle_call(:subscription_status, _from, %State{} = state),
     do: {:reply, state.status, state}
 
@@ -126,19 +140,24 @@ defmodule Extreme.EventProducer.EventBuffer do
     if buffer_size == 1,
       do: :ok = EventProducer.on_async_event(state.producer_pid, event)
 
-    response =
+    state = %State{
+      state
+      | buffered_events: buffered_events,
+        last_buffered_event_number: event_number
+    }
+
+    {response, state} =
       if buffer_size >= state.max_buffered do
-        Logger.warning(
+        Logger.info(
           "Event buffer is full (#{inspect(buffer_size)}). Turning off subscription on #{state.stream}"
         )
 
-        :stop
+        {:stop, %State{state | subscription: nil, subscription_ref: nil, status: :paused}}
       else
-        :ok
+        {:ok, state}
       end
 
-    {:reply, response,
-     %State{state | buffered_events: buffered_events, last_buffered_event_number: event_number}}
+    {:reply, response, state}
   end
 
   def handle_call({:on_event, _event}, _from, %State{} = state) do
@@ -159,7 +178,6 @@ defmodule Extreme.EventProducer.EventBuffer do
         %State{subscription: subscription, subscription_ref: ref} = state
       )
       when reason in [
-             :processing_of_event_requested_stopping_subscription,
              :processing_of_read_events_failed,
              :processing_of_buffered_events_failed,
              :unsubscribed,
@@ -171,7 +189,7 @@ defmodule Extreme.EventProducer.EventBuffer do
 
   def handle_info(
         {:DOWN, _ref, :process, _subscription, {:shutdown, _reason}},
-        %State{subscription: nil, subscription_ref: nil, status: :disconnected} = state
+        %State{subscription: nil, subscription_ref: nil} = state
       ) do
     # we are already aware of that
     {:noreply, state}
@@ -185,7 +203,7 @@ defmodule Extreme.EventProducer.EventBuffer do
     )
 
     :timer.sleep(reconnect_delay)
-    GenServer.cast(self(), :subscribe)
+    GenServer.cast(self(), :resubscribe)
     {:noreply, %State{state | subscription: nil, subscription_ref: nil, status: :paused}}
   end
 
@@ -202,11 +220,14 @@ defmodule Extreme.EventProducer.EventBuffer do
         {:ok, event_number} = _get_event_number(event)
         {:reply, :ok, %State{state | last_buffered_event_number: event_number}}
 
-      {:ok, event_number} ->
+      {:ok, event_number} when is_integer(event_number) ->
         {:reply, :ok, %State{state | last_buffered_event_number: event_number}}
 
       :stop ->
-        {:reply, :stop, %State{state | status: :paused}}
+        :ok = Subscription.unsubscribe(state.subscription)
+
+        {:reply, :stop,
+         %State{state | subscription: nil, subscription_ref: nil, status: :disconnected}}
     end
   end
 
@@ -236,7 +257,7 @@ defmodule Extreme.EventProducer.EventBuffer do
     # in cahtching up mode while we still have buffered events
     if state.status == :paused and :queue.len(buffered_events) == 0 do
       Logger.info("Resuming subscription on #{state.stream}")
-      :ok = GenServer.cast(self(), :subscribe)
+      :ok = GenServer.cast(self(), :resubscribe)
     end
 
     {:noreply, %State{state | buffered_events: buffered_events}}

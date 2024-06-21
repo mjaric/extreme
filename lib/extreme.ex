@@ -80,7 +80,7 @@ defmodule Extreme do
       def subscribe_producer(producer),
         do: Extreme.EventProducer.subscribe(producer)
 
-      @spec unsubscribe_producer(producer :: pid()) :: :unsubscribed
+      @spec unsubscribe_producer(producer :: pid()) :: :ok
       def unsubscribe_producer(producer),
         do: Extreme.EventProducer.unsubscribe(producer)
 
@@ -131,7 +131,7 @@ defmodule Extreme do
   @doc """
   TODO
   """
-  @callback unsubscribe(subscription :: pid()) :: :unsubscribed
+  @callback unsubscribe(subscription :: pid()) :: :ok
 
   @doc """
   TODO

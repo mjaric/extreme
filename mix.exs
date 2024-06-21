@@ -4,7 +4,7 @@ defmodule Extreme.Mixfile do
   def project do
     [
       app: :extreme,
-      version: "1.1.0-rc3",
+      version: "1.1.0-rc8",
       elixir: "~> 1.11",
       elixirc_paths: _elixirc_paths(Mix.env()),
       source_url: "https://github.com/exponentially/extreme",
@@ -13,6 +13,11 @@ defmodule Extreme.Mixfile do
       """,
       package: _package(),
       start_permanent: Mix.env() == :prod,
+      test_coverage: [
+        summary: [
+          threshold: 83
+        ]
+      ],
       preferred_cli_env: [
         vcr: :test,
         "vcr.delete": :test,

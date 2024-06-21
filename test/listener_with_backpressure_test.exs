@@ -9,15 +9,19 @@ defmodule Extreme.ListenerWithBackPressureTest do
     use Extreme.ListenerWithBackPressure
     alias ExtremeTest.DB
 
+    @impl Extreme.ListenerWithBackPressure
     def on_init(_opts) do
       client_state = nil
       {:ok, client_state}
     end
 
-    defp get_last_event(stream_name, _client_state),
+    @doc false
+    @impl Extreme.ListenerWithBackPressure
+    def get_last_event(stream_name, _client_state),
       do: DB.get_last_event(MyListenerWithBackPressure, stream_name)
 
-    defp process_push(push, stream_name, _client_state) do
+    @impl Extreme.ListenerWithBackPressure
+    def process_push(push, stream_name, _client_state) do
       event_number = push.event.event_number
 
       # for indexed stream we need to follow link event_number:

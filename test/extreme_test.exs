@@ -113,7 +113,7 @@ defmodule ExtremeTest do
               }} = TestConn.execute(Helpers.write_events(stream))
     end
 
-    test "for hard deleted stream is refused" do
+    test "for hard deleted stream is rejected" do
       stream = Helpers.random_stream_name()
 
       assert {:ok, %ExMsg.WriteEventsCompleted{}} = TestConn.execute(Helpers.write_events(stream))

@@ -30,7 +30,7 @@ defmodule Extreme.PersistentSubscriptionTest do
     end
 
     def handle_call(:unsubscribe, _from, state) do
-      :unsubscribed = TestConn.unsubscribe(state.subscription_pid)
+      :ok = TestConn.unsubscribe(state.subscription_pid)
 
       {:reply, :ok, state}
     end

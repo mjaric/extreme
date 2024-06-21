@@ -19,7 +19,7 @@ defmodule Extreme.EventProducer do
     do: GenServer.cast(pid, :subscribe)
 
   def unsubscribe(pid),
-    do: GenServer.call(pid, :unsubscribe)
+    do: GenServer.cast(pid, :unsubscribe)
 
   def on_sync_event(pid, event, timeout),
     do: GenServer.call(pid, {:on_sync_event, event}, timeout)
@@ -56,11 +56,6 @@ defmodule Extreme.EventProducer do
     {:reply, response, state}
   end
 
-  def handle_call(:unsubscribe, _from, %State{} = state) do
-    response = EventBuffer.unsubscribe(state.buffer_pid)
-    {:reply, response, state}
-  end
-
   def handle_call(:subscription_status, _from, %State{} = state) do
     response = EventBuffer.subscription_status(state.buffer_pid)
     {:reply, response, state}
@@ -90,6 +85,11 @@ defmodule Extreme.EventProducer do
     Logger.debug("Starting subscription")
     :ok = EventBuffer.subscribe(state.buffer_pid)
 
+    {:noreply, state}
+  end
+
+  def handle_cast(:unsubscribe, %State{} = state) do
+    :ok = EventBuffer.unsubscribe(state.buffer_pid)
     {:noreply, state}
   end
 end
