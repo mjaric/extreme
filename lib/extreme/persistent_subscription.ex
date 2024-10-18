@@ -76,7 +76,7 @@ defmodule Extreme.PersistentSubscription do
     end
 
     def handle_call(:unsubscribe, _from, state) do
-      :unsubscribed = MyExtremeClientModule.unsubscribe(state.subscription_pid)
+      :ok = MyExtremeClientModule.unsubscribe(state.subscription_pid)
 
       {:reply, :ok, state}
     end
@@ -218,7 +218,7 @@ defmodule Extreme.PersistentSubscription do
   end
 
   @doc false
-  @impl true
+  @impl GenServer
   def init({base_name, correlation_id, subscriber, stream, group, allowed_in_flight_messages}) do
     state = %State{
       base_name: base_name,
@@ -235,13 +235,12 @@ defmodule Extreme.PersistentSubscription do
     {:ok, state}
   end
 
-  @impl true
-  def handle_call(:unsubscribe, from, state) do
-    :ok = Shared.unsubscribe(from, state)
+  @impl GenServer
+  def handle_cast(:unsubscribe, state) do
+    :ok = Shared.unsubscribe(state)
     {:noreply, state}
   end
 
-  @impl true
   def handle_cast(:subscribe, state) do
     Msg.ConnectToPersistentSubscription.new(
       subscription_id: state.group,
@@ -275,13 +274,6 @@ defmodule Extreme.PersistentSubscription do
       message: message
     )
     |> cast_request_manager(state.base_name, correlation_id)
-
-    {:noreply, state}
-  end
-
-  def handle_cast(:unsubscribe, state) do
-    Msg.UnsubscribeFromStream.new()
-    |> cast_request_manager(state.base_name, state.correlation_id)
 
     {:noreply, state}
   end

@@ -75,7 +75,7 @@ defmodule Extreme.FanoutListener do
 
       def resubscribe(server), do: GenServer.call(server, :resubscribe)
 
-      def unsubscribe(server), do: GenServer.call(server, :unsubscribe)
+      def unsubscribe(server), do: GenServer.cast(server, :unsubscribe)
 
       @impl true
       def init({extreme, stream_name}) do
@@ -96,17 +96,17 @@ defmodule Extreme.FanoutListener do
         {:reply, :ok, %{state | subscription: subscription, subscription_ref: ref}}
       end
 
-      def handle_call(:unsubscribe, from, state) do
-        true = Process.demonitor(state.subscription_ref)
-        :unsubscribed = state.extreme.unsubscribe(state.subscription)
-        {:reply, :ok, %{state | subscription: nil, subscription_ref: nil}}
-      end
-
       @impl true
       def handle_cast(:subscribe, state) do
         {:ok, subscription, ref} = _subscribe(state)
         Logger.debug("Subscription created: #{inspect({subscription, ref})}")
         {:noreply, %{state | subscription: subscription, subscription_ref: ref}}
+      end
+
+      def handle_cast(:unsubscribe, state) do
+        true = Process.demonitor(state.subscription_ref)
+        :ok = state.extreme.unsubscribe(state.subscription)
+        {:noreply, %{state | subscription: nil, subscription_ref: nil}}
       end
 
       @impl true

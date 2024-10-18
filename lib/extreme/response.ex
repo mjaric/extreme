@@ -4,8 +4,8 @@ defmodule Extreme.Response do
   def get_correlation_id(<<_message_type, _auth, correlation_id::16-binary, _data::binary>>),
     do: correlation_id
 
-  def parse(<<message_type, auth, correlation_id::16-binary, data::binary>>) do
-    case Extreme.MessageResolver.decode_cmd(message_type) do
+  def parse(<<message_code, auth, correlation_id::16-binary, data::binary>>) do
+    case Extreme.MessageResolver.decode_cmd(message_code) do
       :not_authenticated ->
         {:error, :not_authenticated, correlation_id}
 
@@ -23,6 +23,7 @@ defmodule Extreme.Response do
 
       response_struct ->
         data = response_struct.decode(data)
+        # IO.inspect([correlation_id, data.__struct__], label: "Received from ES")
         {auth, correlation_id, data}
     end
   end

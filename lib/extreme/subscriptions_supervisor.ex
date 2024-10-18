@@ -30,7 +30,7 @@ defmodule Extreme.SubscriptionsSupervisor do
     })
   end
 
-  def start_subscription(base_name, correlation_id, subscriber, read_params) do
+  def start_reading_subscription(base_name, correlation_id, subscriber, read_params) do
     base_name
     |> _name()
     |> DynamicSupervisor.start_child(%{
@@ -59,6 +59,15 @@ defmodule Extreme.SubscriptionsSupervisor do
          [base_name, correlation_id, subscriber, stream, group, allowed_in_flight_messages]},
       restart: :temporary
     })
+  end
+
+  def stop_subscription(_base_name, nil),
+    do: :ok
+
+  def stop_subscription(base_name, pid) do
+    base_name
+    |> _name()
+    |> DynamicSupervisor.terminate_child(pid)
   end
 
   def kill_all_subscriptions(base_name) do

@@ -67,6 +67,28 @@ defmodule Extreme do
         )
       end
 
+      @spec start_event_producer(stream :: String.t(), subscriber :: pid(), opts :: Keyword.t()) ::
+              Supervisor.on_start_child()
+      def start_event_producer(stream, subscriber, opts \\ []) do
+        Extreme.EventProducer.Supervisor.start_event_producer(
+          __MODULE__,
+          [{:stream, stream}, {:subscriber, subscriber} | opts]
+        )
+      end
+
+      @spec subscribe_producer(producer :: pid()) :: :ok
+      def subscribe_producer(producer),
+        do: Extreme.EventProducer.subscribe(producer)
+
+      @spec unsubscribe_producer(producer :: pid()) :: :ok
+      def unsubscribe_producer(producer),
+        do: Extreme.EventProducer.unsubscribe(producer)
+
+      @spec producer_subscription_status(producer :: pid()) ::
+              :disconnected | :catching_up | :live | :paused
+      def producer_subscription_status(producer),
+        do: Extreme.EventProducer.subscription_status(producer)
+
       def unsubscribe(subscription) when is_pid(subscription),
         do: Extreme.Subscription.unsubscribe(subscription)
 
@@ -109,7 +131,7 @@ defmodule Extreme do
   @doc """
   TODO
   """
-  @callback unsubscribe(subscription :: pid()) :: :unsubscribed
+  @callback unsubscribe(subscription :: pid()) :: :ok
 
   @doc """
   TODO

@@ -29,18 +29,20 @@ defmodule Extreme.SharedSubscription do
   end
 
   @doc """
-  Sends unsubscribe request and remembers who it should respond to when response is received.
-  Response will arrive to subscription as push message.
+  Sends unsubscribe "fire and forget" request to EventStoreDB.
   """
-  def unsubscribe(from, state) do
-    message = Msg.UnsubscribeFromStream.new()
-
+  def unsubscribe(state) do
     spawn_link(fn ->
-      state.base_name
-      |> RequestManager.execute(message, state.correlation_id)
-    end)
+      message = Msg.UnsubscribeFromStream.new()
 
-    Process.put(:reply_to, from)
+      :ok =
+        state.base_name
+        |> RequestManager.execute(message, state.correlation_id)
+
+      :ok =
+        state.base_name
+        |> RequestManager.unregister_subscription(state.correlation_id)
+    end)
 
     :ok
   end
@@ -80,7 +82,7 @@ defmodule Extreme.SharedSubscription do
         {:noreply, state}
 
       :stop ->
-        Logger.warning("Processing of event requested stopping subscription")
+        Logger.info("Processing of event requested stopping subscription")
         RequestManager.unregister_subscription(state.base_name, state.correlation_id)
         {:stop, {:shutdown, :processing_of_event_requested_stopping_subscription}, state}
     end
@@ -92,12 +94,6 @@ defmodule Extreme.SharedSubscription do
        ) do
     send(state.subscriber, {:extreme, reason})
     RequestManager.unregister_subscription(state.base_name, state.correlation_id)
-
-    case Process.get(:reply_to) do
-      nil -> :ok
-      from -> GenServer.reply(from, reason)
-    end
-
     {:stop, {:shutdown, reason}, state}
   end
 

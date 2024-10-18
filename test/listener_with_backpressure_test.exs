@@ -1,18 +1,27 @@
-defmodule Extreme.ListenerTest do
+defmodule Extreme.ListenerWithBackPressureTest do
   use ExUnit.Case, async: false
   alias ExtremeTest.{Helpers, DB}
   alias ExtremeTest.Events, as: Event
   alias Extreme.Messages, as: ExMsg
   require Logger
 
-  defmodule MyListener do
-    use Extreme.Listener
+  defmodule MyListenerWithBackPressure do
+    use Extreme.ListenerWithBackPressure
     alias ExtremeTest.DB
 
-    defp get_last_event(stream_name),
-      do: DB.get_last_event(MyListener, stream_name)
+    @impl Extreme.ListenerWithBackPressure
+    def on_init(_opts) do
+      client_state = nil
+      {:ok, client_state}
+    end
 
-    defp process_push(push, stream_name) do
+    @doc false
+    @impl Extreme.ListenerWithBackPressure
+    def get_last_event(stream_name, _client_state),
+      do: DB.get_last_event(MyListenerWithBackPressure, stream_name)
+
+    @impl Extreme.ListenerWithBackPressure
+    def process_push(push, stream_name, _client_state) do
       event_number = push.event.event_number
 
       # for indexed stream we need to follow link event_number:
@@ -29,15 +38,12 @@ defmodule Extreme.ListenerTest do
       DB.in_transaction(fn ->
         :timer.sleep(sleep)
         send(:test, {:processing_push, push.event.event_type, push.event.data})
-        :ok = DB.ack_event(MyListener, stream_name, event_number)
+        :ok = DB.ack_event(MyListenerWithBackPressure, stream_name, event_number)
         Logger.debug(fn -> "Processed event ##{event_number}" end)
       end)
 
       {:ok, event_number}
     end
-
-    # This override is optional
-    def caught_up, do: Logger.debug("We are up to date. YEEEY!!!")
   end
 
   setup do
@@ -53,15 +59,15 @@ defmodule Extreme.ListenerTest do
     event2 = %Event.PersonChangedName{name: "Zika"}
     event3 = %Event.PersonChangedName{name: "Laza"}
 
-    assert DB.get_last_event(MyListener, stream) == -1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == -1
 
     # write 2 events to stream
     {:ok, %ExMsg.WriteEventsCompleted{}} =
       TestConn.execute(Helpers.write_events(stream, [event1, event2]))
 
     # run listener and expect it to read them
-    {:ok, listener} = MyListener.start_link(TestConn, stream, read_per_page: 2)
-    assert MyListener.subscribed?(listener)
+    {:ok, listener} = MyListenerWithBackPressure.start_link(TestConn, stream, read_per_page: 2)
+    assert MyListenerWithBackPressure.subscribed?(listener)
 
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonCreated"
@@ -69,7 +75,7 @@ defmodule Extreme.ListenerTest do
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event2 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 1
 
     {:ok, %ExMsg.WriteEventsCompleted{}} =
       TestConn.execute(Helpers.write_events(stream, [event3]))
@@ -77,12 +83,10 @@ defmodule Extreme.ListenerTest do
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event3 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 2
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 2
 
-    :ok = MyListener.unsubscribe(listener)
-    refute MyListener.subscribed?(listener)
-    # unsubscribe is idempotent
-    :ok = MyListener.unsubscribe(listener)
+    :ok = MyListenerWithBackPressure.unsubscribe(listener)
+    refute MyListenerWithBackPressure.subscribed?(listener)
     Helpers.assert_no_leaks(TestConn)
   end
 
@@ -93,7 +97,7 @@ defmodule Extreme.ListenerTest do
     event2 = %Event.PersonChangedName{name: "Zika"}
     event3 = %Event.PersonChangedName{name: "Laza"}
 
-    assert DB.get_last_event(MyListener, stream) == -1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == -1
 
     # write 2 events to stream
     {:ok, %ExMsg.WriteEventsCompleted{}} =
@@ -101,7 +105,10 @@ defmodule Extreme.ListenerTest do
 
     # run listener and expect it to read them
     {:ok, listener} =
-      MyListener.start_link(TestConn, stream, read_per_page: 2, ack_timeout: sleep + 1_000)
+      MyListenerWithBackPressure.start_link(TestConn, stream,
+        read_per_page: 2,
+        ack_timeout: sleep + 1_000
+      )
 
     assert_receive {:processing_push, event_type, event}, sleep + 1_000
     assert event_type == "Elixir.ExtremeTest.Events.SlowProcessingEventHappened"
@@ -109,7 +116,7 @@ defmodule Extreme.ListenerTest do
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event2 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 1
 
     {:ok, %ExMsg.WriteEventsCompleted{}} =
       TestConn.execute(Helpers.write_events(stream, [event3]))
@@ -117,9 +124,9 @@ defmodule Extreme.ListenerTest do
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event3 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 2
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 2
 
-    :ok = MyListener.unsubscribe(listener)
+    :ok = MyListenerWithBackPressure.unsubscribe(listener)
     Helpers.assert_no_leaks(TestConn)
   end
 
@@ -129,24 +136,24 @@ defmodule Extreme.ListenerTest do
     event2 = %Event.PersonChangedName{name: "Zika"}
     event3 = %Event.PersonChangedName{name: "Laza"}
 
-    assert DB.get_last_event(MyListener, stream) == -1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == -1
 
     # write 2 events to stream
     {:ok, %ExMsg.WriteEventsCompleted{}} =
       TestConn.execute(Helpers.write_events(stream, [event1, event2]))
 
     # run listener and expect it to read them
-    {:ok, _listener} = MyListener.start_link(TestConn, stream, read_per_page: 2)
+    {:ok, _listener} = MyListenerWithBackPressure.start_link(TestConn, stream, read_per_page: 2)
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonCreated"
     assert event1 == :erlang.binary_to_term(event)
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event2 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 1
 
     # unsubscribe and write new event
-    :ok = MyListener.unsubscribe()
+    :ok = MyListenerWithBackPressure.unsubscribe()
 
     {:ok, %ExMsg.WriteEventsCompleted{}} =
       TestConn.execute(Helpers.write_events(stream, [event3]))
@@ -155,16 +162,16 @@ defmodule Extreme.ListenerTest do
     refute_receive {:processing_push, _event_type, _event}
 
     # when subscribed again, listener resumes where it stopped
-    :ok = MyListener.subscribe()
+    :ok = MyListenerWithBackPressure.subscribe()
 
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event3 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 2
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 2
 
     refute_receive {:processing_push, _event_type, _event}
 
-    :ok = MyListener.unsubscribe()
+    :ok = MyListenerWithBackPressure.unsubscribe()
     Helpers.assert_no_leaks(TestConn)
   end
 
@@ -173,28 +180,31 @@ defmodule Extreme.ListenerTest do
     event1 = %Event.PersonCreated{name: "Pera"}
     event2 = %Event.PersonChangedName{name: "Zika"}
 
-    assert DB.get_last_event(MyListener, stream) == -1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == -1
 
     {:ok, %ExMsg.WriteEventsCompleted{}} =
       TestConn.execute(Helpers.write_events(stream, [event1, event2]))
 
     # run listener and expect they are not processed
     {:ok, _listener} =
-      MyListener.start_link(TestConn, stream, read_per_page: 2, auto_subscribe?: false)
+      MyListenerWithBackPressure.start_link(TestConn, stream,
+        read_per_page: 2,
+        auto_subscribe: false
+      )
 
     refute_receive {:processing_push, _event_type, _event}, 1_000
 
     # turn on subscription and expect that events are processed
-    :ok = MyListener.subscribe()
+    :ok = MyListenerWithBackPressure.subscribe()
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonCreated"
     assert event1 == :erlang.binary_to_term(event)
     assert_receive {:processing_push, event_type, event}
     assert event_type == "Elixir.ExtremeTest.Events.PersonChangedName"
     assert event2 == :erlang.binary_to_term(event)
-    assert DB.get_last_event(MyListener, stream) == 1
+    assert DB.get_last_event(MyListenerWithBackPressure, stream) == 1
 
-    :ok = MyListener.unsubscribe()
+    :ok = MyListenerWithBackPressure.unsubscribe()
     Helpers.assert_no_leaks(TestConn)
   end
 end

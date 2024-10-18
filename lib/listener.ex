@@ -100,6 +100,9 @@ defmodule Extreme.Listener do
       def handle_call(:subscribed?, _from, state),
         do: {:reply, !!state.subscription, state}
 
+      defp _unsubscribe(%{subscription: nil, subscription_ref: nil} = state),
+        do: {:reply, :ok, state}
+
       defp _unsubscribe(state) do
         Logger.info(
           "#{__MODULE__} unsubscribed from #{state.stream_name}. Last processed event: #{state.last_event}"
@@ -107,7 +110,7 @@ defmodule Extreme.Listener do
 
         true = Process.demonitor(state.subscription_ref)
 
-        :unsubscribed = state.extreme.unsubscribe(state.subscription)
+        :ok = state.extreme.unsubscribe(state.subscription)
         {:reply, :ok, %{state | subscription: nil, subscription_ref: nil}}
       end
 

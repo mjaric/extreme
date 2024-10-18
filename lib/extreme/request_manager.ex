@@ -1,5 +1,6 @@
 defmodule Extreme.RequestManager do
   use GenServer
+  alias Extreme.SubscriptionsSupervisor
   alias Extreme.{Tools, Configuration, Request, Response, Connection}
   require Logger
 
@@ -14,7 +15,7 @@ defmodule Extreme.RequestManager do
   ]
 
   defmodule State do
-    defstruct ~w(base_name credentials requests subscriptions read_only stream_event_buffers)a
+    defstruct ~w(base_name credentials requests subscriptions pid_to_correlation_id read_only)a
   end
 
   def _name(base_name), do: Module.concat(base_name, RequestManager)
@@ -24,42 +25,6 @@ defmodule Extreme.RequestManager do
 
   def start_link(base_name, configuration),
     do: GenServer.start_link(__MODULE__, {base_name, configuration}, name: _name(base_name))
-
-  @doc """
-  Send IdentifyClient message to EventStore. Called when connection is established.
-  """
-  def identify_client(connection_name, base_name) do
-    base_name
-    |> _name()
-    |> GenServer.cast({:identify_client, connection_name})
-  end
-
-  def send_heartbeat_response(base_name, correlation_id) do
-    base_name
-    |> _name()
-    |> GenServer.cast({:send_heartbeat_response, correlation_id})
-  end
-
-  @doc """
-  Processes server message as soon as it is completely received via tcp.
-  This function is run in `connection` process.
-  """
-  def process_server_message(base_name, message) do
-    :ok =
-      base_name
-      |> _name()
-      |> GenServer.cast({:process_server_message, message})
-  end
-
-  @doc """
-  Sends `message` as a response to pending request or as a push on subscription.
-  `correlation_id` is used to find pending request/subscription.
-  """
-  def respond_with_server_message(base_name, correlation_id, response) do
-    base_name
-    |> _name()
-    |> GenServer.cast({:respond_with_server_message, correlation_id, response})
-  end
 
   def ping(base_name, correlation_id) do
     base_name
@@ -77,12 +42,6 @@ defmodule Extreme.RequestManager do
     base_name
     |> _name()
     |> GenServer.call({:subscribe_to, stream, subscriber, resolve_link_tos, ack_timeout})
-  end
-
-  def unregister_subscription(base_name, correlation_id) do
-    base_name
-    |> _name()
-    |> GenServer.cast({:unregister_subscription, correlation_id})
   end
 
   def read_and_stay_subscribed(base_name, subscriber, params) do
@@ -105,6 +64,34 @@ defmodule Extreme.RequestManager do
     )
   end
 
+  def unregister_subscription(base_name, correlation_id) do
+    base_name
+    |> _name()
+    |> GenServer.cast({:unregister_subscription, correlation_id})
+  end
+
+  ## Called only from `Connection`
+
+  @doc """
+  Send IdentifyClient message to EventStore. Called by `connection` process when connection is established.
+  """
+  def identify_client(connection_name, base_name) do
+    base_name
+    |> _name()
+    |> GenServer.cast({:identify_client, connection_name})
+  end
+
+  @doc """
+  Processes server message as soon as it is completely received via tcp.
+  This function is run in `connection` process.
+  """
+  def process_server_message(base_name, message) do
+    :ok =
+      base_name
+      |> _name()
+      |> GenServer.cast({:process_server_message, message})
+  end
+
   def kill_all_subscriptions(base_name) do
     base_name
     |> _name()
@@ -113,7 +100,7 @@ defmodule Extreme.RequestManager do
 
   ## Server callbacks
 
-  @impl true
+  @impl GenServer
   def init({base_name, configuration}) do
     # link me with SubscriptionsSupervisor, since I'm subscription register.
     true =
@@ -127,12 +114,12 @@ defmodule Extreme.RequestManager do
        credentials: Configuration.prepare_credentials(configuration),
        requests: %{},
        subscriptions: %{},
-       stream_event_buffers: %{},
+       pid_to_correlation_id: %{},
        read_only: Keyword.get(configuration, :read_only, false)
      }}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:ping, correlation_id}, from, %State{} = state) do
     state = %State{state | requests: Map.put(state.requests, correlation_id, from)}
 
@@ -158,6 +145,7 @@ defmodule Extreme.RequestManager do
 
     _in_task(state.base_name, fn ->
       {:ok, message} = Request.prepare(message, state.credentials, correlation_id)
+
       :ok = Connection.push(state.base_name, message)
     end)
 
@@ -185,7 +173,7 @@ defmodule Extreme.RequestManager do
 
   def handle_call({:read_and_stay_subscribed, subscriber, read_params}, from, %State{} = state) do
     _start_subscription(self(), from, state.base_name, fn correlation_id ->
-      Extreme.SubscriptionsSupervisor.start_subscription(
+      Extreme.SubscriptionsSupervisor.start_reading_subscription(
         state.base_name,
         correlation_id,
         subscriber,
@@ -220,15 +208,23 @@ defmodule Extreme.RequestManager do
     _in_task(base_name, fn ->
       correlation_id = Tools.generate_uuid()
 
-      {:ok, subscription} = fun.(correlation_id)
+      GenServer.cast(req_manager, {:prepare_subscription, correlation_id})
 
-      GenServer.cast(req_manager, {:register_subscription, correlation_id, subscription})
+      correlation_id
+      |> fun.()
+      |> case do
+        {:ok, subscription} ->
+          GenServer.cast(req_manager, {:confirm_subscription, correlation_id, subscription})
+          GenServer.reply(from, {:ok, subscription})
 
-      GenServer.reply(from, {:ok, subscription})
+        error ->
+          :ok = GenServer.cast(req_manager, {:unregister_subscription, correlation_id})
+          GenServer.reply(from, error)
+      end
     end)
   end
 
-  @impl true
+  @impl GenServer
   def handle_cast({:execute, correlation_id, message}, %State{} = state) do
     _in_task(state.base_name, fn ->
       {:ok, message} = Request.prepare(message, state.credentials, correlation_id)
@@ -249,7 +245,8 @@ defmodule Extreme.RequestManager do
       message
       |> Response.get_correlation_id()
 
-    state =
+    %State{} =
+      state =
       state.subscriptions[correlation_id]
       |> _process_server_message(message, state)
 
@@ -263,29 +260,58 @@ defmodule Extreme.RequestManager do
   end
 
   def handle_cast({:respond_with_server_message, correlation_id, response}, %State{} = state) do
-    state =
-      case Map.get(state.requests, correlation_id) do
-        from when not is_nil(from) ->
+    %State{} =
+      state =
+      state.requests
+      |> Map.get(correlation_id)
+      |> case do
+        nil ->
+          state
+
+        from ->
           requests = Map.delete(state.requests, correlation_id)
           :ok = GenServer.reply(from, response)
           %{state | requests: requests}
-
-        nil ->
-          state
       end
 
     {:noreply, state}
   end
 
-  def handle_cast({:register_subscription, correlation_id, subscription}, %State{} = state) do
-    subscriptions = Map.put(state.subscriptions, correlation_id, subscription)
+  def handle_cast({:prepare_subscription, correlation_id}, %State{} = state) do
+    subscriptions = Map.put(state.subscriptions, correlation_id, {:pending, correlation_id, []})
+
     {:noreply, %State{state | subscriptions: subscriptions}}
   end
 
+  def handle_cast({:confirm_subscription, correlation_id, subscription}, %State{} = state) do
+    Process.monitor(subscription)
+    {:pending, ^correlation_id, buffer} = Map.get(state.subscriptions, correlation_id)
+
+    buffer
+    |> Enum.reverse()
+    |> Enum.each(&GenServer.cast(subscription, {:process_push, fn -> Response.parse(&1) end}))
+
+    subscriptions = Map.put(state.subscriptions, correlation_id, subscription)
+    pid_to_correlation_id = Map.put(state.pid_to_correlation_id, subscription, correlation_id)
+
+    {:noreply,
+     %State{state | subscriptions: subscriptions, pid_to_correlation_id: pid_to_correlation_id}}
+  end
+
   def handle_cast({:unregister_subscription, correlation_id}, %State{} = state) do
-    subscriptions = Map.delete(state.subscriptions, correlation_id)
+    {subscription, subscriptions} = Map.pop(state.subscriptions, correlation_id)
+    pid_to_correlation_id = Map.delete(state.pid_to_correlation_id, subscription)
+    SubscriptionsSupervisor.stop_subscription(state.base_name, subscription)
     requests = Map.delete(state.requests, correlation_id)
-    {:noreply, %State{state | requests: requests, subscriptions: subscriptions}}
+
+    state = %State{
+      state
+      | requests: requests,
+        subscriptions: subscriptions,
+        pid_to_correlation_id: pid_to_correlation_id
+    }
+
+    {:noreply, state}
   end
 
   def handle_cast(:kill_all_subscriptions, %State{} = state) do
@@ -294,7 +320,28 @@ defmodule Extreme.RequestManager do
     state.base_name
     |> Extreme.SubscriptionsSupervisor.kill_all_subscriptions()
 
-    {:noreply, %State{state | subscriptions: %{}}}
+    {:noreply, %State{state | subscriptions: %{}, pid_to_correlation_id: %{}}}
+  end
+
+  @impl GenServer
+  def handle_info({:DOWN, _, :process, pid, _reason}, state) do
+    {correlation_id, pid_to_correlation_id} = Map.pop(state.pid_to_correlation_id, pid)
+    subscriptions = Map.delete(state.subscriptions, correlation_id)
+    requests = Map.delete(state.requests, correlation_id)
+
+    state = %State{
+      state
+      | subscriptions: subscriptions,
+        pid_to_correlation_id: pid_to_correlation_id,
+        requests: requests
+    }
+
+    {:noreply, state}
+  end
+
+  def handle_info(msg, state) do
+    Logger.warning("[Extreme.RequestManager] Unhandled message received: #{inspect(msg)}")
+    {:noreply, state}
   end
 
   ## Helper functions
@@ -305,19 +352,37 @@ defmodule Extreme.RequestManager do
     |> Task.Supervisor.start_child(fun)
   end
 
-  # we got StreamEventAppeared before subscription was registered
+  # we got message for still unregistered subscription so we need to buffer it
   defp _process_server_message(
-         nil,
+         {:pending, correlation_id, buffer},
          <<0xC2, _auth, correlation_id::16-binary, _data::binary>> = message,
-         %State{stream_event_buffers: buffers} = state
+         %State{} = state
        ) do
-    buffer = Map.get(buffers, correlation_id, [])
+    subscriptions =
+      state.subscriptions
+      |> Map.put(
+        correlation_id,
+        {:pending, correlation_id, [message | buffer]}
+      )
 
-    %State{state | stream_event_buffers: Map.put(buffers, correlation_id, [message | buffer])}
+    %State{state | subscriptions: subscriptions}
   end
 
+  # message is response for new subscription request
+  defp _process_server_message({:pending, _correlation_id, _buffer}, message, state),
+    do: _process_response(message, state)
+
   # message is response to pending request
-  defp _process_server_message(nil, message, state) do
+  defp _process_server_message(nil, message, state),
+    do: _process_response(message, state)
+
+  # message is for subscription, decoding needs to be done there so we keep the order of incoming messages
+  defp _process_server_message(subscription, message, state) do
+    GenServer.cast(subscription, {:process_push, fn -> Response.parse(message) end})
+    state
+  end
+
+  defp _process_response(message, state) do
     _in_task(state.base_name, fn ->
       message
       |> Response.parse()
@@ -327,39 +392,38 @@ defmodule Extreme.RequestManager do
     state
   end
 
-  # message is for subscription, decoding needs to be done there so we keep the order of incoming messages
-  defp _process_server_message(
-         subscription,
-         message,
-         %State{stream_event_buffers: buffers} = state
-       ) do
-    correlation_id = Response.get_correlation_id(message)
-    buffer = Map.get(buffers, correlation_id, [])
-
-    [message | buffer]
-    |> Enum.reverse()
-    |> Enum.each(&GenServer.cast(subscription, {:process_push, fn -> Response.parse(&1) end}))
-
-    %State{state | stream_event_buffers: Map.delete(buffers, correlation_id)}
-  end
-
   defp _respond_on({:client_identified, _correlation_id}, _),
     do: :ok
 
   defp _respond_on({:heartbeat_request, correlation_id}, base_name),
-    do: :ok = send_heartbeat_response(base_name, correlation_id)
+    do: :ok = _send_heartbeat_response(base_name, correlation_id)
 
   defp _respond_on({:pong, correlation_id}, base_name),
-    do: :ok = respond_with_server_message(base_name, correlation_id, :pong)
+    do: :ok = _respond_with_server_message(base_name, correlation_id, :pong)
 
   defp _respond_on({:error, :not_authenticated, correlation_id}, base_name),
-    do: :ok = respond_with_server_message(base_name, correlation_id, {:error, :not_authenticated})
+    do:
+      :ok = _respond_with_server_message(base_name, correlation_id, {:error, :not_authenticated})
 
   defp _respond_on({:error, :bad_request, correlation_id}, base_name),
-    do: :ok = respond_with_server_message(base_name, correlation_id, {:error, :bad_request})
+    do: :ok = _respond_with_server_message(base_name, correlation_id, {:error, :bad_request})
 
   defp _respond_on({_auth, correlation_id, message}, base_name) do
     response = Response.reply(message, correlation_id)
-    :ok = respond_with_server_message(base_name, correlation_id, response)
+    :ok = _respond_with_server_message(base_name, correlation_id, response)
+  end
+
+  # Sends `message` as a response to pending request or as a push on subscription.
+  # `correlation_id` is used to find pending request/subscription.
+  defp _respond_with_server_message(base_name, correlation_id, response) do
+    base_name
+    |> _name()
+    |> GenServer.cast({:respond_with_server_message, correlation_id, response})
+  end
+
+  defp _send_heartbeat_response(base_name, correlation_id) do
+    base_name
+    |> _name()
+    |> GenServer.cast({:send_heartbeat_response, correlation_id})
   end
 end
