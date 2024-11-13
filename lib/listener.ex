@@ -2,10 +2,16 @@ defmodule Extreme.Listener do
   @moduledoc ~S"""
   TODO
   """
-  defmacro __using__(_) do
+  defmacro __using__(opts \\ []) do
     quote do
       use GenServer
       require Logger
+
+      @exclude_catch_all_handle_info Keyword.get(
+                                       unquote(opts),
+                                       :exclude_catch_all_handle_info,
+                                       false
+                                     )
 
       @default_read_per_page 500
 
@@ -155,7 +161,9 @@ defmodule Extreme.Listener do
         {:noreply, state}
       end
 
-      def handle_info(_msg, state), do: {:noreply, state}
+      unless @exclude_catch_all_handle_info do
+        def handle_info(_msg, state), do: {:noreply, state}
+      end
 
       defp _start_subscription(last_event, state) do
         {:ok, subscription} =
