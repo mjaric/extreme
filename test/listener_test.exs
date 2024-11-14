@@ -6,7 +6,10 @@ defmodule Extreme.ListenerTest do
   require Logger
 
   defmodule MyListener do
-    use Extreme.Listener
+    use Extreme.Listener,
+      # this is default value
+      exclude_catch_all_handle_info: false
+
     alias ExtremeTest.DB
 
     defp get_last_event(stream_name),

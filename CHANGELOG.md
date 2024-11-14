@@ -1,7 +1,13 @@
 # Changelog for extreme v1.1.0
 
+## Breaking changes
+
 - Rename `RequestManager._unregister_subscription/2` (removed leading `_`)
+
+## New
+
 - Add event_producer functionality for module that uses `Extreme`.
+- Add option to exclude catch all `handle_info` when using `Extreme.Listener`
 
 # Changelog for extreme v1.0.7
 
